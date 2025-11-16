@@ -1,11 +1,20 @@
 # DevSecOps Pipeline Architecture - Step by Step
 
-## Complete Architecture Flow
+## Complete Architecture Flow with Terraform Modules
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                           DEVSECOPS PIPELINE ARCHITECTURE                          │
+│                    DEVSECOPS PIPELINE ARCHITECTURE (MODULAR)                       │
 │                                EU CENTRAL 1                                        │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+TERRAFORM STATE MANAGEMENT
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐                        │
+│  │ S3 Backend  │───▶│  DynamoDB    │───▶│  State Locking  │                        │
+│  │(terraform.  │    │   Table      │    │   & Versioning  │                        │
+│  │ tfstate)    │    │              │    │                 │                        │
+│  └─────────────┘    └──────────────┘    └─────────────────┘                        │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 
 STEP 1: SOURCE & TRIGGER
@@ -15,13 +24,33 @@ STEP 1: SOURCE & TRIGGER
 └─────────────┘    └──────────────┘    └─────────┬───────┘
                                                  │
                                                  ▼
-STEP 2: PIPELINE TRIGGER                ┌─────────────────┐
+STEP 2: TERRAFORM MODULES DEPLOYMENT    ┌─────────────────┐
+┌─────────────────────────────────────▶ │  SECURITY       │
+│                                       │   MODULE        │
+│  ┌─────────────┐  ┌─────────────┐    │ • Security Hub  │
+│  │ Security    │  │  Pipeline   │    │ • GuardDuty     │
+│  │  Module     │  │   Module    │    │ • State Bucket  │
+│  └─────────────┘  └─────────────┘    │ • DynamoDB Lock │
+│                                       └─────────┬───────┘
+│                                                 │
+│                                                 ▼
+│                                       ┌─────────────────┐
+│                                       │  PIPELINE       │
+│                                       │   MODULE        │
+│                                       │ • CodePipeline  │
+│                                       │ • CodeBuild     │
+│                                       │ • S3 Artifacts  │
+│                                       └─────────┬───────┘
+└─────────────────────────────────────────────────┘
+                                                  │
+                                                  ▼
+STEP 3: PIPELINE TRIGGER                ┌─────────────────┐
                                         │  CodePipeline   │◀─── CloudWatch Events
                                         │   (Triggered)   │
                                         └─────────┬───────┘
                                                   │
                                                   ▼
-STEP 3: SECURITY SCANNING STAGE         ┌─────────────────┐
+STEP 4: SECURITY SCANNING STAGE         ┌─────────────────┐
 ┌─────────────────────────────────────▶ │   CodeBuild     │
 │                                       │ Security Scan   │
 │  ┌─────────────┐  ┌─────────────┐    │    Project      │
@@ -41,14 +70,14 @@ STEP 3: SECURITY SCANNING STAGE         ┌────────────�
 └─────────────────────────────────────────────────┘
                                                   │
                                                   ▼
-STEP 4: SECURITY FINDINGS PROCESSING    ┌─────────────────┐
+STEP 5: SECURITY FINDINGS PROCESSING    ┌─────────────────┐
                                         │    Python       │
                                         │   Processor     │
                                         │ (Aggregation)   │
                                         └─────────┬───────┘
                                                   │
                                                   ▼
-STEP 5: CENTRALIZED SECURITY            ┌─────────────────┐
+STEP 6: CENTRALIZED SECURITY            ┌─────────────────┐
 ┌─────────────────────────────────────▶ │ Security Hub    │
 │                                       │   (Findings)    │
 │  ┌─────────────┐  ┌─────────────┐    └─────────────────┘
@@ -63,7 +92,7 @@ STEP 5: CENTRALIZED SECURITY            ┌────────────�
 └─────────────────────────────────────────────────┘
                                                   │
                                                   ▼
-STEP 6: DEPLOYMENT GATE                 ┌─────────────────┐
+STEP 7: DEPLOYMENT GATE                 ┌─────────────────┐
                                         │  Security Gate  │
                                         │ (Pass/Fail)     │
                                         └─────────┬───────┘
@@ -77,13 +106,13 @@ STEP 6: DEPLOYMENT GATE                 ┌────────────�
                                          └────────┬────────┘
                                                   │
                                                   ▼
-STEP 7: INFRASTRUCTURE DEPLOYMENT       ┌─────────────────┐
+STEP 8: INFRASTRUCTURE DEPLOYMENT       ┌─────────────────┐
                                         │ CloudFormation  │
                                         │   Deployment    │
                                         └─────────┬───────┘
                                                   │
                                                   ▼
-STEP 8: RUNTIME MONITORING              ┌─────────────────┐
+STEP 9: RUNTIME MONITORING              ┌─────────────────┐
 ┌─────────────────────────────────────▶ │   Production    │
 │                                       │  Environment    │
 │  ┌─────────────┐  ┌─────────────┐    └─────────────────┘
@@ -97,63 +126,92 @@ STEP 8: RUNTIME MONITORING              ┌────────────�
 │  └─────────────┘  └─────────────┘
 └─────────────────────────────────────────────────┘
 
-STEP 9: FEEDBACK LOOP                   ┌─────────────────┐
+STEP 10: FEEDBACK LOOP                  ┌─────────────────┐
                                         │   Dashboard     │
                                         │   & Alerts      │
                                         └─────────────────┘
 ```
 
-## Step-by-Step Process
+## Terraform Module Structure
+
+```
+devsecops-terraform/
+├── main.tf                      # Module orchestration
+├── backend.tf                   # S3 + DynamoDB state management
+├── terraform.tfvars             # Environment configuration
+├── variables.tf                 # Input variables
+├── outputs.tf                   # Module outputs
+├── iam.tf                       # IAM roles and policies
+├── modules/
+│   ├── security/                # Security services module
+│   │   ├── main.tf             # Security Hub, GuardDuty, state bucket
+│   │   ├── variables.tf        # Security module variables
+│   │   └── outputs.tf          # Security module outputs
+│   └── pipeline/               # CI/CD pipeline module
+│       ├── main.tf             # CodePipeline, CodeBuild, S3
+│       ├── variables.tf        # Pipeline module variables
+│       └── outputs.tf          # Pipeline module outputs
+└── buildspec-security.yml       # Security scanning configuration
+```
+
+## Step-by-Step Process (Updated)
 
 ### Step 1: Source Code Management
 - Developer commits code to repository
 - Code is packaged and uploaded to S3 artifacts bucket
 
-### Step 2: Pipeline Activation
+### Step 2: Terraform Infrastructure Deployment
+- **Security Module**: Deploys Security Hub, GuardDuty, state bucket, DynamoDB lock table
+- **Pipeline Module**: Deploys CodePipeline, CodeBuild, S3 artifacts bucket
+- **State Management**: S3 backend with DynamoDB locking ensures safe concurrent operations
+
+### Step 3: Pipeline Activation
 - CodePipeline detects new artifacts in S3
 - Pipeline automatically triggers security scanning stage
 
-### Step 3: Multi-Tool Security Scanning
+### Step 4: Multi-Tool Security Scanning
 - **SAST**: Bandit scans Python code for security vulnerabilities
 - **Dependency**: Safety checks for vulnerable dependencies
 - **IaC**: Checkov validates Terraform configurations
 - **Container**: Trivy scans container images for CVEs
 - **Additional**: Grype provides supplementary vulnerability scanning
 
-### Step 4: Security Findings Aggregation
+### Step 5: Security Findings Aggregation
 - Python processor collects all security tool outputs
 - Findings are normalized and formatted for Security Hub
 - Severity levels and metadata are standardized
 
-### Step 5: Centralized Security Management
-- All findings sent to AWS Security Hub
-- GuardDuty monitors for runtime threats
+### Step 6: Centralized Security Management
+- All findings sent to AWS Security Hub (deployed via Security Module)
+- GuardDuty monitors for runtime threats (deployed via Security Module)
 - Config ensures compliance with security policies
 - Inspector performs application security assessments
 
-### Step 6: Security Gate Decision
+### Step 7: Security Gate Decision
 - Pipeline evaluates security scan results
 - High/Critical vulnerabilities can block deployment
 - Security policies determine pass/fail criteria
 
-### Step 7: Infrastructure Deployment
+### Step 8: Infrastructure Deployment
 - If security checks pass, CloudFormation deploys infrastructure
 - Infrastructure as Code ensures consistent, secure deployments
 
-### Step 8: Runtime Security Monitoring
+### Step 9: Runtime Security Monitoring
 - GuardDuty continuously monitors for threats
 - Config tracks configuration compliance
 - CloudWatch provides operational monitoring
 - X-Ray enables distributed tracing
 
-### Step 9: Continuous Feedback
+### Step 10: Continuous Feedback
 - Security dashboards provide visibility
 - Automated alerts notify teams of issues
 - Metrics drive continuous improvement
 
-## Security Integration Points
+## Key Improvements with Modular Architecture
 
-- **Build Time**: SAST, dependency scanning, IaC validation
-- **Deploy Time**: Security gate, compliance checks
-- **Runtime**: Threat detection, configuration monitoring
-- **Continuous**: Vulnerability management, compliance reporting
+1. **State Management**: S3 backend with DynamoDB locking prevents state corruption
+2. **Modularity**: Separate security and pipeline modules for better organization
+3. **Reusability**: Modules can be reused across environments
+4. **Maintainability**: Clear separation of concerns
+5. **Scalability**: Easy to add new modules or modify existing ones
+6. **Configuration Management**: terraform.tfvars for environment-specific settings
