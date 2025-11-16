@@ -1,0 +1,28 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.tfplan
+
+# AWS
+.aws/
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Security reports
+*-report.json
+security-summary.json
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

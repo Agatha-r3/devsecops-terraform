@@ -1,0 +1,57 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.9
+    commands:
+      # Install security tools
+      - pip install bandit safety checkov
+      - curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+      - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+      
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      
+  build:
+    commands:
+      # Static Application Security Testing (SAST)
+      - echo "Running SAST with Bandit..."
+      - bandit -r . -f json -o bandit-report.json || true
+      
+      # Dependency vulnerability scanning
+      - echo "Running dependency scan with Safety..."
+      - safety check --json --output safety-report.json || true
+      
+      # Infrastructure as Code scanning
+      - echo "Running IaC scan with Checkov..."
+      - checkov -d . --framework terraform --output json --output-file checkov-report.json || true
+      
+      # Container image scanning (if Dockerfile exists)
+      - |
+        if [ -f Dockerfile ]; then
+          echo "Building Docker image..."
+          docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
+          echo "Scanning Docker image with Trivy..."
+          trivy image --format json --output trivy-report.json $IMAGE_REPO_NAME:$IMAGE_TAG || true
+        fi
+      
+      # Send findings to Security Hub
+      - echo "Processing security findings..."
+      - python process_security_findings.py
+      
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - |
+        if [ -f Dockerfile ]; then
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
+        fi
+
+artifacts:
+  files:
+    - '**/*'
+  name: SecurityScanArtifacts
